@@ -1,10 +1,10 @@
 
-from database import Base, engine, SessionLocal, get_db
+from .db.database import Base, engine, SessionLocal, get_db
 from pydantic import BaseModel
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from sqlalchemy.orm import Session
-from schemas import MenusCreate, SubmenuCreate, SubmenuUpdate, DishCreate, DishUpdate
-import models
+from .db.schemas import MenusCreate, SubmenuCreate, SubmenuUpdate, DishCreate, DishUpdate
+from . import models
 from fastapi.responses import JSONResponse
 import uvicorn
 
@@ -24,6 +24,7 @@ def read_menu(db:Session=Depends(get_db)):
     get_menus = db.query(models.Menu).all()
     return get_menus
 
+# Здесь считаются блюда и сабменю
 @app.get('/api/v1/menus/{menu_id}')
 def get_menu(menu_id:str, db:Session=Depends(get_db)):
     menu = db.query(models.Menu).get(menu_id)
@@ -87,7 +88,7 @@ def delete_submenu(submenu_id: str, db:Session=Depends(get_db)):
     get_submenu.delete()
     db.commit()
     return get_submenu
-
+# Здесь считаются блюда 
 @app.get('/api/v1/menus/{menu_id}/submenus/{submenu_id}')
 def get_submenu(menu_id: str, submenu_id: str, db: Session = Depends(get_db)):
     menu = db.query(models.Menu).filter(models.Menu.id == menu_id).first()

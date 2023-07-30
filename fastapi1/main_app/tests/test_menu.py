@@ -1,14 +1,10 @@
 import json
 from fastapi.testclient import TestClient
-from main import app
 from fastapi import FastAPI
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
-from main import app
-from database import SessionLocal, engine, Base
-import models
-import uuid
+from ..main import app
 
 client = TestClient(app)
 def assert_menu_properties(response_json):
@@ -84,3 +80,5 @@ def test_empty_menu_id(menu_id):
     response = client.get(f'/api/v1/menus/{menu_id}')
     assert response.status_code == 404
     assert response.json() == {"detail": "menu not found"}
+
+
