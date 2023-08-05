@@ -1,8 +1,10 @@
-from .db.database import Base
+from ..db.database import Base
 from sqlalchemy import String, Boolean, Integer, Column, text, TIMESTAMP, ForeignKey
 from sqlalchemy.orm import relationship, backref
 import uuid
 from sqlalchemy.dialects.postgresql import UUID
+
+
 
 class Menu(Base):
     __tablename__ = 'menus'
@@ -11,7 +13,6 @@ class Menu(Base):
     title = Column(String, nullable=False, unique=True)
     description = Column(String)
     submenus = relationship('Submenu', back_populates='menus', cascade='all,delete')
-
 
 class Submenu(Base):
     __tablename__ = 'submenus'
@@ -35,4 +36,3 @@ class Dish(Base):
     submenus = relationship('Submenu',back_populates='dishes')
 
 
-    
