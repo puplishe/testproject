@@ -2,17 +2,17 @@
 FROM python:3.10-slim
 
 # Set the working directory
-WORKDIR /fastapi1
+WORKDIR /testproject
 
 # Copy the app code to the container
-ADD ./fastapi1/main_app /fastapi1/main_app
+ADD ./ /testproject/
 
-COPY ./requirements.txt /fastapi1/
+COPY ./requirements.txt /testproject/
 
 RUN apt-get update \
     && apt-get -y install libpq-dev python-dev-is-python3 gcc
 # Install the dependencies
-RUN pip install -r /fastapi1/requirements.txt 
+RUN pip install -r requirements.txt
 
 # Command to run the tests
 CMD pytest -v -s -W ignore --tb=short --color=yes
