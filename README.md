@@ -18,5 +18,5 @@ This is a sample project created for demonstration purposes.
 ## Запуск без докера
 1. Установить необходимые пакеты из requirements.txt
 2. Изменить данные в .env на ваши данные для вашей БД
-3. Из директории fastapi1/ прописать uvicorn main_app.main:app --host 0.0.0.0 --port 8000
-4. Из директории fastapi1/ прописать pytest
+3. Из директории testproject/ прописать uvicorn main_app.main:app --host 0.0.0.0 --port 8000
+4. Из директории testproject/ прописать pytest
