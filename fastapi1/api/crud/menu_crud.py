@@ -1,62 +1,84 @@
 from typing import Any
 
-from sqlalchemy.orm import Session
+from fastapi import Depends
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from ...db.database import get_db
 from ...models import models
 from ...models.schemas.schema_menu import MenusCreate
 from .errors.http_error import NotFoundError
-from .submenu_crud import read_submenu
 
 
-def create_menu(db: Session, menu: MenusCreate) -> models.Menu:
-    new_menu = models.Menu(**menu.model_dump())
-    db.add(new_menu)
-    db.commit()
-    db.refresh(new_menu)
-    return new_menu
+class MenuCrud():
+    def __init__(self, db: AsyncSession = Depends(get_db)) -> None:
+        self.db = db
+        self._model = models.Menu
 
+    async def create_menu(self, menu: MenusCreate) -> models.Menu:
+        new_menu = models.Menu(**menu.dict())
+        self.db.add(new_menu)
+        await self.db.commit()
+        return new_menu
 
-def read_menu(db: Session) -> list[models.Menu]:
-    menus = db.query(models.Menu).all()
-    return menus
+    async def read_menu(self) -> list[models.Menu]:
+        stmt = select(models.Menu)
+        menus = (await self.db.execute(stmt)).scalars().all()
+        return menus
 
+    async def get_menu_data(self, menu: models.Menu) -> dict[str, Any]:
+        return {
+            'id': menu.id,
+            'title': menu.title,
+            'description': menu.description,
+        }
 
-def get_menu_data(menu: models.Menu, submenus: list[models.Submenu]) -> dict[str, Any]:
-    submenus_count = len(submenus)
-    dishes_count = sum(len(submenu.dishes) for submenu in submenus)
+    async def get_menu(self, menu_id: str) -> dict[str, Any]:
+        stmt = select(models.Menu).where(models.Menu.id == menu_id)
+        menu = (await self.db.execute(stmt)).scalars().first()
+        if menu is None:
+            raise NotFoundError(detail='menu not found')
+        submenus = (await self.db.execute(select(models.Submenu).where(models.Submenu.menu_id == menu_id))).scalars().all()
+        dishes_count = 0
+        for submenu in submenus:
+            dishes = (await self.db.execute(select(models.Dish).where(models.Dish.submenu_id == submenu.id))).scalars().all()
 
-    return {
-        'id': menu.id,
-        'title': menu.title,
-        'description': menu.description,
-        'submenus_count': submenus_count,
-        'dishes_count': dishes_count,
-        'submenus': submenus
-    }
+            dishes_count += len(dishes)
 
+        submenus_count = len(submenus)
+        menu_data = {
+            'id': menu.id,
+            'title': menu.title,
+            'description': menu.description,
+            'submenus_count': submenus_count,
+            'dishes_count': dishes_count
+        }
 
-def get_menu(db: Session, menu_id: str) -> dict[str, Any]:
-    menu = db.query(models.Menu).get(menu_id)
-    if not menu:
-        raise NotFoundError(detail='menu not found')
+        return menu_data
 
-    submenus = read_submenu(db, menu_id)
-    return get_menu_data(menu, submenus)
+    async def patch_menu(self, menu_id: str, menu: MenusCreate) -> dict[str, Any]:
+        stmt = select(models.Menu).where(models.Menu.id == menu_id)
+        menu_data = (await self.db.execute(stmt)).scalars().first()
+        if not menu_data:
+            raise NotFoundError(detail='menu not found')
+        stmt = update(models.Menu).where(models.Menu.id == menu_id).values(menu.dict())
+        menu_data = (await self.db.execute(stmt))
+        await self.db.commit()
+        self.db.refresh(menu_data)
 
+        return await self.get_menu(menu_id)
 
-def patch_menu(db: Session, menu_id: str, menu: MenusCreate) -> models.Menu:
-    menu_data = db.query(models.Menu).filter(models.Menu.id == menu_id).first()
-    if not menu_data:
-        raise NotFoundError(detail='menu not found')
+    async def delete_menu(self, menu_id: str) -> None:
+        stmt = delete(models.Menu).where(models.Menu.id == menu_id)
+        await self.db.execute(stmt)
+        await self.db.commit()
 
-    menu_query = db.query(models.Menu).filter(models.Menu.id == menu_id)
-    menu_query.update(menu.model_dump(), synchronize_session=False)
-    db.commit()
-    updated_menu = menu_query.first()
-    return updated_menu
+    async def get_full_menus(self) -> list[dict[str, Any]]:
+        stmt = select(models.Menu).options(
+            selectinload(models.Menu.submenus).selectinload(models.Submenu.dishes)
+        )
+        result = await self.db.execute(stmt)
+        menus = result.scalars().all()
 
-
-def delete_menu(db: Session, menu_id: str):
-    menu_query = db.query(models.Menu).filter(models.Menu.id == menu_id)
-    menu_query.delete()
-    db.commit()
+        return menus

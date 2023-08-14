@@ -1,47 +1,51 @@
 from typing import Any
 
-from sqlalchemy.orm import Session
+from fastapi import BackgroundTasks, Depends
+from fastapi.encoders import jsonable_encoder
 
-from ...cache.cache import cache, cached_with_redis
-from ...cache.repository.cache_dishes import invalidate_dish_cache
+from ...cache.cache import RedisCache
 from ...models import models
 from ...models.schemas.schema_dish import DishCreate, DishUpdate
-from ..crud.dishes_crud import create_dish as db_create_dish
-from ..crud.dishes_crud import delete_dish as db_delete_dish
-from ..crud.dishes_crud import get_dish as db_get_dish
-from ..crud.dishes_crud import patch_dish as db_patch_dish
-from ..crud.dishes_crud import read_dishes as db_read_dishes
+from ..crud.dishes_crud import DishesCrud
 
 
 class DishService:
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, backgroundtask: BackgroundTasks, dishcrud: DishesCrud = Depends(), cache: RedisCache = Depends()):
+        self._dish_crud = dishcrud
+        self.cache = cache
+        self.backtast = backgroundtask
 
-    def read_dishes(self, menu_id: str, submenu_id: str) -> list[models.Dish]:
-        @cached_with_redis(cache, key_func=lambda: f'{menu_id}:{submenu_id}:dishes')
-        def _read_dishes():
-            dishes = db_read_dishes(self.db, menu_id, submenu_id)
-            return dishes
-        return _read_dishes()
+    async def read_dishes(self, menu_id: str, submenu_id: str) -> list[models.Dish]:
+        dishes = await self._dish_crud.read_dishes(menu_id, submenu_id)
+        cache = await self.cache.get_cache(f'/api/v1/menus/{menu_id}/submenus/{submenu_id}/dishes')
+        if cache is not None:
+            dishes = cache
+        else:
+            await self.cache.setcache(f'/api/v1/menus/{menu_id}/submenus/{submenu_id}/dishes', jsonable_encoder(dishes))
+        return dishes
 
-    def create_dish(self, menu_id: str, submenu_id: str, dish_data: DishCreate) -> models.Dish:
-        new_dish = db_create_dish(self.db, menu_id, submenu_id, dish_data)
-        invalidate_dish_cache(menu_id, submenu_id, str(new_dish.id))
+    async def create_dish(self, menu_id: str, submenu_id: str, dish_data: DishCreate) -> models.Dish:
+        new_dish = await self._dish_crud.create_dish(menu_id, submenu_id, dish_data)
+        self.backtast.add_task(self.cache.invalidate_cache, f'/api/v1/menus/{menu_id}/submenus/{submenu_id}')
         return new_dish
 
-    def get_dish(self, menu_id: str, submenu_id: str, dish_id: str) -> dict[str, Any]:
-        @cached_with_redis(cache, key_func=lambda: f'{menu_id}:{submenu_id}:dishes:{dish_id}')
-        def _get_dish():
-            dish = db_get_dish(self.db, menu_id, submenu_id, dish_id)
-            return dish
-        return _get_dish()
+    async def get_dish(self, menu_id: str, submenu_id: str, dish_id: str) -> dict[str, Any]:
+        dish = await self._dish_crud.get_dish(menu_id, submenu_id, dish_id)
+        cache = await self.cache.get_cache(f'/api/v1/menus/{menu_id}/submenus/{submenu_id}/dishes/{dish_id}')
+        if cache:
+            return cache
+        else:
+            await self.cache.setcache(
+                f'/api/v1/menus/{menu_id}/submenus/{submenu_id}/dishes/{dish_id}', jsonable_encoder(dish))
+        return dish
 
-    def patch_dish(self, menu_id: str, submenu_id: str, dish_id: str, dish_data: DishUpdate) -> models.Dish:
-        updated_dish = db_patch_dish(
-            self.db, menu_id, submenu_id, dish_id, dish_data)
-        invalidate_dish_cache(menu_id, submenu_id, dish_id)
+    async def patch_dish(self, menu_id: str, submenu_id: str, dish_id: str, dish_data: DishUpdate) -> models.Dish:
+        self.backtast.add_task(self.cache.invalidate_cache, f'/api/v1/menus/{menu_id}')
+        self.backtast.add_task(self.cache.delete_cache,
+                               f'/api/v1/menus/{menu_id}/submenus/{submenu_id}/dishes/{dish_id}')
+        updated_dish = await self._dish_crud.patch_dish(dish_id, dish_data)
         return updated_dish
 
-    def delete_dish(self, menu_id: str, submenu_id: str, dish_id: str) -> None:
-        invalidate_dish_cache(menu_id, submenu_id, dish_id)
-        return db_delete_dish(self.db, menu_id, submenu_id, dish_id)
+    async def delete_dish(self, menu_id: str, submenu_id: str, dish_id: str) -> None:
+        self.backtast.add_task(self.cache.invalidate_cache, f'/api/v1/menus/{menu_id}')
+        return await self._dish_crud.delete_dish(dish_id)

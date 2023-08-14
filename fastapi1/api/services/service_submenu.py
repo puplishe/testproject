@@ -1,52 +1,54 @@
 from typing import Any
 
-from sqlalchemy.orm import Session
+from fastapi import BackgroundTasks, Depends
+from fastapi.encoders import jsonable_encoder
 
-from ...cache.cache import cache, cached_with_redis
-from ...cache.repository.cache_submenu import invalidate_submenu_cache
+from ...cache.cache import RedisCache
 from ...models import models
 from ...models.schemas.schema_submenu import SubmenuCreate, SubmenuUpdate
-from ..crud.submenu_crud import create_submenu as db_create_submenu
-from ..crud.submenu_crud import delete_submenu as db_delete_submenu
-from ..crud.submenu_crud import get_submenu as db_get_submenu
-from ..crud.submenu_crud import patch_submenu as db_patch_submenu
-from ..crud.submenu_crud import read_submenu as db_read_submenu
+from ..crud.submenu_crud import SubmenuCrud
 
 
 class SubmenuService:
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, backgroundtask: BackgroundTasks, submenucrud: SubmenuCrud = Depends(), cache: RedisCache = Depends()):
+        self._submenu_crud = submenucrud
+        self.cache = cache
+        self.backtast = backgroundtask
 
-    def read_submenu(self, menu_id: str) -> list[models.Submenu]:
-        @cached_with_redis(cache, key_func=lambda: f'{menu_id}:submenu')
-        def _read_submenu():
-            submenus = db_read_submenu(db=self.db, menu_id=menu_id)
+    async def read_submenu(self, menu_id: str) -> list[models.Submenu]:
+
+        submenus = await self._submenu_crud.read_submenu(menu_id=menu_id)
+        cache = await self.cache.get_cache(f'/api/v1/menus/{menu_id}/submenus/')
+        if cache is not None:
+
+            return cache
+        else:
+
+            await self.cache.setcache(f'/api/v1/menus/{menu_id}/submenus/', jsonable_encoder(submenus))
             return submenus
-        return _read_submenu()
 
-    def create_submenu(self, menu_id: str, submenu: SubmenuCreate) -> models.Submenu:
-        new_submenu = db_create_submenu(
-            db=self.db, menu_id=menu_id, submenu=submenu)
-        invalidate_submenu_cache(menu_id=menu_id, submenu_id=str(
-            new_submenu.id), db=self.db)
+    async def create_submenu(self, menu_id: str, submenu: SubmenuCreate) -> models.Submenu:
+        new_submenu = await self._submenu_crud.create_submenu(menu_id=menu_id, submenu=submenu)
+        self.backtast.add_task(self.cache.invalidate_cache, f'/api/v1/menus/{menu_id}')
         return new_submenu
 
-    def delete_submenu(self, menu_id: str, submenu_id: str) -> dict[str, str]:
-        invalidate_submenu_cache(
-            menu_id=menu_id, submenu_id=submenu_id, db=self.db)
-        return db_delete_submenu(self.db, menu_id, submenu_id)
+    async def delete_submenu(self, menu_id: str, submenu_id: str) -> None:
+        self.backtast.add_task(self.cache.invalidate_cache, f'/api/v1/menus/{menu_id}')
+        return await self._submenu_crud.delete_submenu(submenu_id)
 
-    def get_submenu(self, menu_id: str, submenu_id: str) -> dict[str, Any]:
-        @cached_with_redis(cache, key_func=lambda: f'{menu_id}:submenu:{submenu_id}')
-        def _get_submenu():
-            submenu_data = db_get_submenu(
-                menu_id=menu_id, submenu_id=submenu_id, db=self.db)
-            return submenu_data
-        return _get_submenu()
+    async def get_submenu(self, menu_id: str, submenu_id: str) -> dict[str, Any]:
 
-    def patch_submenu(self, menu_id: str, submenu_id: str, submenu_data: SubmenuUpdate) -> models.Submenu:
-        updated_submenu = db_patch_submenu(db=self.db, menu_id=menu_id,
-                                           submenu_id=submenu_id, submenu_data=submenu_data)
-        invalidate_submenu_cache(
-            menu_id=menu_id, submenu_id=submenu_id, db=self.db)
+        submenu_data = await self._submenu_crud.get_submenu(
+            menu_id=menu_id, submenu_id=submenu_id)
+        cache = await self.cache.get_cache(f'/api/v1/menus/{menu_id}/submenus/{submenu_id}')
+        if cache:
+            return cache
+        else:
+            await self.cache.setcache(f'/api/v1/menus/{menu_id}/submenus/{submenu_id}', jsonable_encoder(submenu_data))
+        return submenu_data
+
+    async def patch_submenu(self, menu_id: str, submenu_id: str, submenu_data: SubmenuUpdate) -> dict[str, Any]:
+        self.backtast.add_task(self.cache.delete_cache, f'/api/v1/menus/{menu_id}/submenus/{submenu_id}')
+        self.backtast.add_task(self.cache.invalidate_cache, f'/api/v1/menus/{menu_id}')
+        updated_submenu = await self._submenu_crud.patch_submenu(submenu_id=submenu_id, submenu_data=submenu_data)
         return updated_submenu

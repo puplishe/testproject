@@ -48,4 +48,4 @@ repos:
     hooks:
     -   id: mypy
         exclude: 'migrations'
-        additional_dependencies: ['types-redis', 'types-cachetools']
+        additional_dependencies: ['types-redis', 'types-cachetools', 'types-requests']

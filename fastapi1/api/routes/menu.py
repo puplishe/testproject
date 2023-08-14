@@ -1,38 +1,47 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi_restful.cbv import cbv
 
-from ...db.database import get_db
 from ...models.schemas.schema_menu import MenusCreate
 from ..services.service_menu import MenuService
 
 router = APIRouter()
 
 
-@router.post('/menus', status_code=201)
-def create_menu(menu: MenusCreate, db: Session = Depends(get_db)):
-    menu_service = MenuService(db)
-    return menu_service.create_menu(menu)
+@cbv(router)
+class MenuRouter:
 
+    __menu_service: MenuService = Depends()
 
-@router.get('/menus')
-def read_menu(db: Session = Depends(get_db)):
-    menu_service = MenuService(db)
-    return menu_service.read_menu()
+    @router.post('/menus', status_code=201)
+    async def create_menu(self, menu: MenusCreate):
 
+        return await self.__menu_service.create_menu(menu)
 
-@router.get('/menus/{menu_id}')
-def get_menu(menu_id: str, db: Session = Depends(get_db)):
-    menu_service = MenuService(db)
-    return menu_service.get_menu(menu_id)
+    @router.get('/menus')
+    async def read_menu(self):
 
+        return await self.__menu_service.read_menu()
 
-@router.patch('/menus/{menu_id}')
-def patch_menu(menu_id: str, menu: MenusCreate, db: Session = Depends(get_db)):
-    menu_service = MenuService(db)
-    return menu_service.patch_menu(menu_id, menu)
+    @router.get('/menus/{menu_id}')
+    async def get_menu(self, menu_id: str):
 
+        return await self.__menu_service.get_menu(menu_id)
 
-@router.delete('/menus/{menu_id}')
-def delete_menu(menu_id: str, db: Session = Depends(get_db)):
-    menu_service = MenuService(db)
-    return menu_service.delete_menu(menu_id)
+    @router.patch('/menus/{menu_id}')
+    async def patch_menu(self, menu_id: str, menu: MenusCreate):
+
+        return await self.__menu_service.patch_menu(menu_id, menu)
+
+    @router.delete('/menus/{menu_id}')
+    async def delete_menu(self, menu_id: str):
+
+        return await self.__menu_service.delete_menu(menu_id)
+
+    @router.get(
+        '/menus_info/',
+        summary='Get full info about menus including dishes,submenus',
+        description='To get full info send a GET request, '
+                    'the response comes according to the changes in the administrators excel file'
+    )
+    async def get_all_info_router(self):
+        return await self.__menu_service.full_menus()

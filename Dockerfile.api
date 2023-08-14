@@ -12,9 +12,10 @@ COPY ./requirements.txt /testproject/
 RUN apt-get update \
     && apt-get -y install libpq-dev python-dev-is-python3 gcc
 # Install the dependencies
+
+RUN pip install --upgrade pip
+
 RUN pip install -r requirements.txt
-
-
 # Expose the port
 EXPOSE 8000
 

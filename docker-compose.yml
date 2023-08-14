@@ -6,11 +6,14 @@ services:
       dockerfile: Dockerfile.api
     ports:
       - "8000:8000"
+    expose:
+      - '8000'
     depends_on:
       database:
         condition: service_healthy
       redis:
         condition: service_healthy
+
 
   tests:
     build:
@@ -20,6 +23,20 @@ services:
       - database
       - api
       - redis
+
+  rabbitmq:
+    image: rabbitmq:alpine
+
+
+  celery:
+    build:
+      context: ./
+      dockerfile: Dockerfile.api
+    command: celery -A fastapi1.celery.celery worker -l info --pool=solo
+    depends_on:
+      - rabbitmq
+      - tests
+
 
   database:
     image: postgres:15.1-alpine
@@ -37,6 +54,16 @@ services:
       - "5432:5432"
     env_file:
       - ./fastapi1/.env
+
+  celery-beat:
+    build:
+      context: ./
+      dockerfile: Dockerfile.api
+    command: celery -A fastapi1.celery.celery beat
+    depends_on:
+      - rabbitmq
+      - tests
+
   redis:
     image: redis:latest
     ports:

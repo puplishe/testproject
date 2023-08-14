@@ -1,46 +1,51 @@
 from typing import Any
 
-from sqlalchemy.orm import Session
+from fastapi import BackgroundTasks, Depends
+from fastapi.encoders import jsonable_encoder
 
-from ...cache.cache import cache, cached_with_redis
-from ...cache.repository.cache_menu import invalidate_menu_cache
+from ...cache.cache import RedisCache
 from ...models import models
 from ...models.schemas.schema_menu import MenusCreate
-from ..crud.menu_crud import create_menu as db_create_menu
-from ..crud.menu_crud import delete_menu as db_delete_menu
-from ..crud.menu_crud import get_menu as db_get_menu
-from ..crud.menu_crud import patch_menu as db_patch_menu
-from ..crud.menu_crud import read_menu as db_read_menu
+from ..crud.menu_crud import MenuCrud
 
 
 class MenuService:
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self, backgroundtask: BackgroundTasks, menu_crud: MenuCrud = Depends(), cache: RedisCache = Depends()):
+        self._menu_crud = menu_crud
+        self.cache = cache
+        self.backtask = backgroundtask
 
-    def create_menu(self, menu: MenusCreate) -> models.Menu:
-        new_menu = db_create_menu(self.db, menu)
-        invalidate_menu_cache(menu_id=str(new_menu.id), db=self.db)
-        return new_menu
+    async def create_menu(self, menu: MenusCreate) -> models.Menu:
+        self.backtask.add_task(self.cache.delete_cache, '/api/v1/menus/')
+        return await self._menu_crud.create_menu(menu)
 
-    def read_menu(self) -> list[models.Menu]:
-        @cached_with_redis(cache, key_func=lambda: 'menu')
-        def _read_menu():
-            return db_read_menu(self.db)
+    async def read_menu(self) -> list[models.Menu]:
+        menus = await self._menu_crud.read_menu()
+        cache = await self.cache.get_cache('/api/v1/menus/')
+        if cache is not None:
+            return cache
+        else:
+            (await self.cache.setcache('/api/v1/menus/', jsonable_encoder(menus)))
+        return menus
 
-        return _read_menu()
+    async def get_menu(self, menu_id: str) -> dict[str, Any]:
+        menu = await self._menu_crud.get_menu(menu_id)
+        cache = await self.cache.get_cache(f'/api/v1/menus/{menu_id}')
+        if cache is not None:
+            return cache
+        else:
+            (await self.cache.setcache(f'/api/v1/menus/{menu_id}', jsonable_encoder(menu)))
 
-    def get_menu(self, menu_id: str) -> dict[str, Any]:
-        @cached_with_redis(cache, key_func=lambda: f'menu:{menu_id}')
-        def _get_menu():
-            menu = db_get_menu(self.db, menu_id)
-            return menu
-        return _get_menu()
+        return menu
 
-    def patch_menu(self, menu_id: str, menu: MenusCreate) -> models.Menu:
-        updated_menu = db_patch_menu(self.db, menu_id, menu)
-        invalidate_menu_cache(menu_id=menu_id, db=self.db)
-        return updated_menu
+    async def patch_menu(self, menu_id: str, menu: MenusCreate) -> dict[str, Any]:
+        self.backtask.add_task(self.cache.delete_cache, f'/api/v1/menus/{menu_id}')
+        self.backtask.add_task(self.cache.invalidate_cache, '/api/v1/menus')
+        return await self._menu_crud.patch_menu(menu_id, menu)
 
-    def delete_menu(self, menu_id: str) -> dict[str, str]:
-        invalidate_menu_cache(menu_id=menu_id, db=self.db)
-        return db_delete_menu(self.db, menu_id)
+    async def delete_menu(self, menu_id: str) -> None:
+        self.backtask.add_task(self.cache.invalidate_cache, '/api/v1/menus')
+        return await self._menu_crud.delete_menu(menu_id)
+
+    async def full_menus(self) -> list[dict[str, Any]]:
+        return await self._menu_crud.get_full_menus()
