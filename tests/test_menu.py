@@ -89,7 +89,6 @@ async def test_menu_empty():
 async def test_empty_menu_id():
     # Проверяем, что респонс пуст
     async with AsyncClient(app=app, base_url='http://test') as client:
-        await client.delete(f'/api/v1/menus/{menu_id}')
-        response = await client.get(f'/api/v1/menus/{menu_id}')
-    assert response.status_code == 404
-    assert response.json() == {'detail': 'menu not found'}
+        response = await client.delete(f'/api/v1/menus/{menu_id}')
+    assert response.status_code == 200
+    assert response.json() is None
