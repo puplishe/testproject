@@ -1,6 +1,6 @@
-# Myfasapiproject
+# FastAPI проект для YLAB
 
-This is a sample project created for demonstration purposes.
+Этот проект разработан для YLAB стажировки.
 
 ## Установка
 
